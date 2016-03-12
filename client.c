@@ -101,7 +101,7 @@ int main(void)
 			bytesread = recvfrom(sfd, buf, BUFFLEN, 0, (struct sockaddr *) &sock_serv, &slen);
 
 			while(bytesread)
-			{
+			{ 
 				if (bytesread == -1)
 				{
 					error("recvfrom()");
