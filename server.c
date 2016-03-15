@@ -42,7 +42,7 @@ void unlock_client()
 		error("sendto()");
 	}
 }
-void list_elements()
+void list_elements_to_client()
 {
 	dp = opendir (path);
 
@@ -53,7 +53,7 @@ void list_elements()
 
 	(void) closedir (dp);
 }
-void get_data(char* buf) {
+void send_data_to_client() {
 	int fd;
 	char file_request[BUFFLEN] = "";
 	char buftemp[BUFFLEN];
@@ -61,16 +61,27 @@ void get_data(char* buf) {
 	long int n;
 	int l = sizeof(struct sockaddr_in);
 	struct stat buffer;
+	ssize_t bytesread;
+	char getbuf[BUFFLEN];
+
+	puts("GET request");
+	puts("Waiting for file name... ");
+
+	memset(getbuf,0,BUFFLEN);
+	bytesread = recvfrom(sfd, getbuf, BUFFLEN, 0, (struct sockaddr *) &sock_serv, &slen);
+
+	if (bytesread == -1)
+	{
+		error("recvfrom()");
+	}
 
 	strcat(file_request, path);
-	strcat(file_request, buf);
+	strcat(file_request, getbuf);
 
 	printf("file richiesto: %s\n", file_request);
 
 	fd = open(file_request, O_RDONLY);
 	if (fd != -1) {
-
-
 
 		//dimensione del file
 		if (stat(file_request, &buffer) == -1)
@@ -111,11 +122,50 @@ void get_data(char* buf) {
 		unlock_client();
 	}
 }
+void receive_data_from_client()
+{
+	char file_to_receive[BUFFLEN];
+	char path_file_in_server[BUFFLEN]="";
+	ssize_t bytesread,byteswritten,count;
+	int fd;
+	bytesread = recvfrom(sfd, file_to_receive, BUFFLEN, 0, (struct sockaddr *) &sock_serv, &slen); //qui ricevo il nome del file
+	if (bytesread == -1)
+	{
+		error("recvfrom()");
+	}
+	printf("filename ricevuto: %s\n",file_to_receive);
+	strcat(path_file_in_server,path);
+	strcat(path_file_in_server,file_to_receive);
+	fd = open(path_file_in_server,O_CREAT|O_WRONLY|O_TRUNC,0600);
+	if((fd==-1)){
+		error("open fail");
+	}
+	count = 0;
+	memset(file_to_receive,0, BUFFLEN);
+	bytesread = recvfrom(sfd,file_to_receive, BUFFLEN, 0, (struct sockaddr *) &sock_serv, &slen);//qui inizio a ricevere i byte
+
+	while(bytesread)
+	{
+		if (bytesread == -1)
+		{
+			error("recvfrom()");
+		}
+		count += bytesread;
+		byteswritten=write(fd,file_to_receive,bytesread);
+		if(byteswritten==-1)
+			error("write file fail");
+
+		memset(file_to_receive,0,BUFFLEN);
+		bytesread = recvfrom(sfd, file_to_receive, BUFFLEN, 0, (struct sockaddr *) &sock_serv, &slen);
+	}
+	printf("Numero bytes ricevuti : %zd\n",count);
+	close(fd);
+}
+
 void parse_data(char* buf)
 {
 	int swc;
-	ssize_t bytesread;
-	char getbuf[BUFFLEN];
+
 	if(strncmp(buf,"list",4) == 0)
 		swc=0;
 	if(strncmp(buf,"get",3) == 0)
@@ -125,27 +175,18 @@ void parse_data(char* buf)
 	switch (swc){
 		case 0:{
 			puts("LIST request");
-			list_elements(buf);
+			list_elements_to_client(buf);
 			unlock_client();
 			puts("Done");
 			break;
 		};
 		case 1:{
-			puts("GET request");
-			puts("Waiting for file name... ");
-
-			memset(getbuf,0,BUFFLEN);
-			bytesread = recvfrom(sfd, getbuf, BUFFLEN, 0, (struct sockaddr *) &sock_serv, &slen);
-
-			if (bytesread == -1)
-			{
-				error("recvfrom()");
-			}
-			get_data(getbuf);
+			send_data_to_client();
 			break;
 		};
 		case 2:{
 			puts("PUT request");
+			receive_data_from_client();
 			break;
 		};
 		default:{
