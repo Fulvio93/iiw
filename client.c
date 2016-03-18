@@ -26,7 +26,6 @@ void unlock_server()
 		error("sendto()");
 	}
 }
-
 void get_data_from_server()
 {
 	int fd;
@@ -71,7 +70,6 @@ void get_data_from_server()
 	close(fd);
 
 }
-
 void list_from_server()
 {
 	char buf[BUFFLEN];
@@ -90,7 +88,6 @@ void list_from_server()
 		bytesread = recvfrom(sfd, buf, BUFFLEN, 0, (struct sockaddr *) &sock_serv, &slen);
 	}
 }
-
 void put_file_to_server()
 {
 	puts("entrato");
@@ -174,7 +171,7 @@ int main(void) {
 		exitwhile = 0;
 		while (exitwhile == 0) {
 			memset(message, 0, BUFFLEN);
-			printf("\nWhat you want to do? ");
+			printf("\nWhat you want to do? \n");
 			if (scanf("%s", message) == -1)
 				error("scanf");
 

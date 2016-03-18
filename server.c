@@ -10,6 +10,7 @@
 #include<fcntl.h>
 #include<sys/uio.h>
 #include<sys/stat.h>
+#include <sys/wait.h>
 
 #define BUFFLEN 512 //Max length of buffer
 #define PORT 8888   //The port on which to listen for incoming data
@@ -17,7 +18,6 @@
 char path[256];
 struct sockaddr_in sock_serv, clnt;
 int sfd;
-ssize_t recv_len;
 socklen_t slen = sizeof(clnt);
 DIR *dp;
 struct dirent *ep;
@@ -53,7 +53,8 @@ void list_elements_to_client()
 
 	(void) closedir (dp);
 }
-void send_data_to_client() {
+void send_data_to_client()
+{
 	int fd;
 	char file_request[BUFFLEN] = "";
 	char buftemp[BUFFLEN];
@@ -161,10 +162,9 @@ void receive_data_from_client()
 	printf("Numero bytes ricevuti : %zd\n",count);
 	close(fd);
 }
-
 void parse_data(char* buf)
 {
-	int swc;
+	int swc=-1;
 
 	if(strncmp(buf,"list",4) == 0)
 		swc=0;
@@ -172,10 +172,11 @@ void parse_data(char* buf)
 		swc=1;
 	if(strncmp(buf,"put",3) == 0)
 		swc=2;
+	memset(buf,0,BUFFLEN);
 	switch (swc){
 		case 0:{
 			puts("LIST request");
-			list_elements_to_client(buf);
+			list_elements_to_client();
 			unlock_client();
 			puts("Done");
 			break;
@@ -195,7 +196,6 @@ void parse_data(char* buf)
 		};
 	}
 }
-
 int check_path()
 {
 	dp = opendir (path);
@@ -215,6 +215,9 @@ int main(void)
 {
 	int exitwhile = 0;
 	char buf[BUFFLEN];
+	pid_t pid;
+
+	ssize_t recv_len;
 	while(exitwhile == 0)
 	{
 		printf("Insert folder path (with final slash) : ");
@@ -244,23 +247,33 @@ int main(void)
 		error("bind");
 	}
 
-	//keep listening for data
+	//ascolto le richieste del client
 	while(1)
 	{
-		printf("Waiting for data...");
+		printf("Waiting for data...\n");
 		fflush(stdout);
 
 		//try to receive some data, this is a blocking call
-		if ((recv_len = recvfrom(sfd, buf, BUFFLEN, 0, (struct sockaddr *) &clnt, &slen)) == -1)
+		recv_len = recvfrom(sfd, buf, BUFFLEN, 0, (struct sockaddr *) &clnt, &slen);
+		if (recv_len == -1)
 		{
 			error("recvfrom()");
 		}
 
-		//print details of the client and the data received
-		printf("Received packet from: %s, port: %d\n", inet_ntoa(clnt.sin_addr), ntohs(clnt.sin_port));
+		if((pid=fork())==-1)
+		{
+			error("fork fail");
+		}
+		if(pid == 0) {
+			printf("I'm the child\n");
 
-		parse_data(buf);
+			//print details of the client and the data received
+			printf("Received packet from: %s, port: %d\n", inet_ntoa(clnt.sin_addr), ntohs(clnt.sin_port));
 
+			parse_data(buf);
+
+			exit(0);
+		}
+		sleep(1); //faccio partire prima il figlio
 	}
-
 }
