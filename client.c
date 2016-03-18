@@ -176,7 +176,7 @@ int main(void) {
 				error("scanf");
 
 			if (strcmp(message, "list") == 0 || strcmp(message, "get") == 0 || strcmp(message, "put") == 0)
-				exitwhile = 1;
+				exitwhile = 1; 
 
 		}
 		//send the message
