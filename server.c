@@ -274,6 +274,6 @@ int main(void)
 
 			exit(0);
 		}
-		sleep(1); //faccio partire prima il figlio
+		usleep(1000); //faccio partire prima il figlio
 	}
 }
