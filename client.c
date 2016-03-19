@@ -5,6 +5,7 @@
 #include<unistd.h>
 #include<fcntl.h>
 #include<sys/stat.h>
+#include <sys/wait.h>
 
 #define SERVER "127.0.0.1"
 #define BUFFLEN 512 //Max length of buffer
@@ -28,6 +29,7 @@ void unlock_server()
 }
 void get_data_from_server()
 {
+	printf("inizio operazione get -- porta server:%d\n",sock_serv.sin_port);
 	int fd;
 	char buf[BUFFLEN];
 	char filename_to_get[BUFFLEN];
@@ -71,7 +73,7 @@ void get_data_from_server()
 
 }
 void list_from_server()
-{
+{	printf("inizio operazione list -- porta server:%d\n",sock_serv.sin_port);
 	char buf[BUFFLEN];
 	ssize_t bytesread, count = 0;
 	memset(buf,0, BUFFLEN);
@@ -90,7 +92,7 @@ void list_from_server()
 }
 void put_file_to_server()
 {
-	puts("entrato");
+	printf("inizio operazione put -- porta server:%d\n",sock_serv.sin_port);
 	char filename_to_put[BUFFLEN];
 	int fd;
 	struct stat buffer;
@@ -102,16 +104,12 @@ void put_file_to_server()
 	fprintf(stdout,"Write the name of the file you want upload: ");
 	if(scanf("%s", filename_to_put)==-1)
 		error("scanf");
-	puts(filename_to_put);
 	if (sendto(sfd, filename_to_put, strlen(filename_to_put) , 0 , (struct sockaddr *) &sock_serv, slen)==-1)
 	{
 		error("sendto()");
 	}
-	puts("nome mandato");
 	fd = open(filename_to_put, O_RDONLY);
 	if (fd != -1) {
-		//dimensione del file
-		puts("file aperto");
 		if (stat(filename_to_put, &buffer) == -1)
 			error("stat fail");
 		else
@@ -134,10 +132,7 @@ void put_file_to_server()
 			n = read(fd, buftemp, BUFFLEN);
 		}
 
-
-		//sblocco server
-		m = sendto(sfd, buftemp, 0, 0, (struct sockaddr *) &sock_serv, l);
-
+		unlock_server();
 		printf("Numero byte trasferiti : %zd\n", count);
 		printf("Su un numero totale di : %zd \n", sz);
 
@@ -151,7 +146,7 @@ void put_file_to_server()
 int main(void) {
 
 	int exitwhile;
-
+	int pid;
 	char message[BUFFLEN];
 
 
@@ -176,26 +171,34 @@ int main(void) {
 				error("scanf");
 
 			if (strcmp(message, "list") == 0 || strcmp(message, "get") == 0 || strcmp(message, "put") == 0)
-				exitwhile = 1; 
+				exitwhile = 1;
 
 		}
 		//send the message
 		if (sendto(sfd, message, strlen(message), 0, (struct sockaddr *) &sock_serv, slen) == -1) {
 			error("sendto()");
 		}
-
-		if (strncmp(message, "list", 4) == 0) {
-			list_from_server();
+		printf("richiesta preliminare -- porta server:%d \n",sock_serv.sin_port);
+		if((pid=fork())==-1)
+		{
+			error("fork fail");
 		}
+		if(pid == 0) {
+			recvfrom(sfd, "", 0, 0, (struct sockaddr *) &sock_serv, &slen);
+			if (strncmp(message, "list", 4) == 0) {
+				list_from_server();
+			}
 
-		if (strncmp(message, "get", 3) == 0) {
-			get_data_from_server();
+			if (strncmp(message, "get", 3) == 0) {
+				get_data_from_server();
+			}
+
+			if (strncmp(message, "put", 3) == 0) {
+				put_file_to_server();
+			}
+			exit(0);
 		}
-
-		if (strncmp(message, "put", 3) == 0) {
-			put_file_to_server();
-		}
-
+		wait(NULL);
 	}
 
 }

@@ -44,6 +44,8 @@ void unlock_client()
 }
 void list_elements_to_client()
 {
+	printf("inizio operazione list -- porta server:%d verso porta client: %d\n",sock_serv.sin_port,clnt.sin_port);
+
 	dp = opendir (path);
 
 	while ((ep = readdir(dp)))
@@ -55,6 +57,8 @@ void list_elements_to_client()
 }
 void send_data_to_client()
 {
+	printf("inizio operazione get -- porta server:%d verso porta client: %d\n",sock_serv.sin_port,clnt.sin_port);
+
 	int fd;
 	char file_request[BUFFLEN] = "";
 	char buftemp[BUFFLEN];
@@ -125,6 +129,7 @@ void send_data_to_client()
 }
 void receive_data_from_client()
 {
+	printf("inizio operazione put -- porta server:%d verso porta client: %d\n",sock_serv.sin_port,clnt.sin_port);
 	char file_to_receive[BUFFLEN];
 	char path_file_in_server[BUFFLEN]="";
 	ssize_t bytesread,byteswritten,count;
@@ -267,8 +272,26 @@ int main(void)
 		if(pid == 0) {
 			printf("I'm the child\n");
 
-			//print details of the client and the data received
 			printf("Received packet from: %s, port: %d\n", inet_ntoa(clnt.sin_addr), ntohs(clnt.sin_port));
+
+			if ((sfd=socket(AF_INET, SOCK_DGRAM, 0)) == -1)
+			{
+				error("socket");
+			}
+
+			// zero out the structure
+			memset((char *) &sock_serv, 0, sizeof(sock_serv));
+
+			sock_serv.sin_family = AF_INET;
+			sock_serv.sin_port = htons(0);
+			sock_serv.sin_addr.s_addr = htonl(INADDR_ANY);
+
+			//bind socket to port
+			if( bind(sfd , (struct sockaddr*)&sock_serv, sizeof(sock_serv) ) == -1)
+			{
+				error("bind");
+			}
+			unlock_client(); //invio al client un pacchetto vuoto ma che contiene le informazioni sulla nuova porta
 
 			parse_data(buf);
 
