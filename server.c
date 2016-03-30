@@ -269,42 +269,148 @@ void send_data_to_client() {
 void receive_data_from_client()
 {
 	printf("inizio operazione put -- porta server:%d verso porta client: %d\n",sock_serv.sin_port,clnt.sin_port);
-	char file_to_receive[BUFFLEN];
-	char path_file_in_server[BUFFLEN]="";
-	ssize_t bytesread,byteswritten,count;
 	int fd;
-	bytesread = recvfrom(sfd, file_to_receive, BUFFLEN, 0, (struct sockaddr *) &sock_serv, &slen); //qui ricevo il nome del file
-	if (bytesread == -1)
+	char filename_to_get[BUFFLEN];
+	char file_request[BUFFLEN] ="";
+	ssize_t bytesread,byteswritten;
+	int contascartati=0,contabuf=0,contascritti=0;
+	int send_base=0;
+	int position_in_sequence_array;
+	int p,j;
+	off_t filesize;
+	struct udp_pkt_s udp_pkt[(2*W)];
+	struct udp_pkt_s rcv_udp_pkt;
+	pid_t pid;
+	bool ricevuto[2*W];
+	struct timespec time_s;
+	time_s.tv_sec = SECTIMEOUT;
+	time_s.tv_nsec = NSECTIMEOUT;
+
+	if(recvfrom(sfd, &filename_to_get, sizeof(filename_to_get), 0, (struct sockaddr *) &sock_serv, &slen) == -1)
 	{
-		error("recvfrom()");
+		error("recvfrom");
 	}
-	printf("filename ricevuto: %s\n",file_to_receive);
-	strcat(path_file_in_server,path);
-	strcat(path_file_in_server,file_to_receive);
-	fd = open(path_file_in_server,O_CREAT|O_WRONLY|O_TRUNC,0600);
+	if(recvfrom(sfd, &filesize, sizeof(filesize), 0, (struct sockaddr *) &sock_serv, &slen) == -1)
+	{
+		error("recvfrom");
+	}
+	printf("Dimensione file: %zd\n",filesize);
+	fflush(stdout);
+
+	strcat(file_request, path);
+	strcat(file_request, filename_to_get);
+
+	fd = open(file_request,O_CREAT|O_WRONLY|O_TRUNC,0600);
+
 	if((fd==-1)){
 		error("open fail");
 	}
-	count = 0;
-	memset(file_to_receive,0, BUFFLEN);
-	bytesread = recvfrom(sfd,file_to_receive, BUFFLEN, 0, (struct sockaddr *) &sock_serv, &slen);//qui inizio a ricevere i byte
-
-	while(bytesread)
-	{
-		if (bytesread == -1)
-		{
-			error("recvfrom()");
+	srand(time(NULL));
+	while(1) {
+		memset(&rcv_udp_pkt, 0, sizeof(rcv_udp_pkt));
+		bytesread = recvfrom(sfd, &rcv_udp_pkt, sizeof(rcv_udp_pkt), 0, (struct sockaddr *) &sock_serv, &slen);
+		if (bytesread == -1) {
+			error("recvfrom");
 		}
-		count += bytesread;
-		byteswritten=write(fd,file_to_receive,bytesread);
-		if(byteswritten==-1)
-			error("write file fail");
 
-		memset(file_to_receive,0,BUFFLEN);
-		bytesread = recvfrom(sfd, file_to_receive, BUFFLEN, 0, (struct sockaddr *) &sock_serv, &slen);
+		printf("ricevuto buf %d... #seq = %d\n", contabuf, rcv_udp_pkt.seq);
+		contabuf++;
+
+		p = rand() % 100 + 1;
+
+		if(rcv_udp_pkt.seq!=-1){
+			if (p > 10) {
+				rcv_udp_pkt.ack = 1;
+
+				if (sendto(sfd, &rcv_udp_pkt, sizeof(rcv_udp_pkt), 0, (struct sockaddr *) &sock_serv, slen) == -1) {
+					error("sendto()");
+				}
+				printf("mandato ack per #seq; %d\n", rcv_udp_pkt.seq);
+			}
+			else {
+				puts("Ack scartato!");
+				contascartati++;
+			}
+		}
+
+
+
+		if (check_if_in_window(rcv_udp_pkt.seq, send_base))
+		{
+			if (ricevuto[rcv_udp_pkt.seq] == 0) {
+				memset(&udp_pkt[rcv_udp_pkt.seq], 0, sizeof(udp_pkt[rcv_udp_pkt.seq]));
+				udp_pkt[rcv_udp_pkt.seq] = rcv_udp_pkt;
+				ricevuto[rcv_udp_pkt.seq] = 1;
+			}
+
+			if (rcv_udp_pkt.seq == send_base) {
+
+				byteswritten = write(fd, rcv_udp_pkt.buf, rcv_udp_pkt.bytesletti);
+				if (byteswritten == -1)
+					error("write file fail");
+				contascritti += byteswritten;
+				printf("Scritto buf #seq: %d\n", rcv_udp_pkt.seq);
+				ricevuto[rcv_udp_pkt.seq] = 0;
+
+				printf("bisogna aggiornare la send_base! send base corrente:%d\n", send_base);
+				fflush(stdout);
+
+				for (j = 0; j < W; j++) {    //ciclo che calcola la nuova send_base, controllando i pacchetti con ack = 1
+					position_in_sequence_array = send_base + 1 + j;
+					if (position_in_sequence_array > max_num_seq) // se vero, ho sforato il num max di sequenza
+					{
+						printf("posizione di sforamento=%d\n", position_in_sequence_array);
+						position_in_sequence_array = (position_in_sequence_array - max_num_seq) - 1;
+						printf("nuova posizione %d\n", position_in_sequence_array);
+					}
+					if (ricevuto[position_in_sequence_array] ==
+						0) { // appena trova il primo pacchetto con ack=0, aggiornerà la posizione della send_base
+						printf("il primo pacchetto non ricevuto dopo la send_base è il numero:%d\n",
+							   position_in_sequence_array);
+						send_base = position_in_sequence_array;// aggiornerà la posizione della send_base
+						printf("send_base aggiornata = %d\n", send_base);
+						fflush(stdout);
+						break;                                          //fermo il ciclo perchè ho trovato la nuova send_base
+					}
+					else {
+						byteswritten = write(fd, udp_pkt[position_in_sequence_array].buf, udp_pkt[position_in_sequence_array].bytesletti);
+						if (byteswritten == -1)
+							error("write file fail");
+						contascritti += byteswritten;
+						printf("Scritto buf #seq: %d\n", position_in_sequence_array);
+						ricevuto[position_in_sequence_array] = 0;
+					}
+				}
+			}
+		}
+
+		if(contascritti==filesize ){
+			unlock_client();
+			if((pid=fork()) == 0)
+			{
+				while(1) {
+					if (recvfrom(sfd, &rcv_udp_pkt, sizeof(rcv_udp_pkt), 0, (struct sockaddr *) &sock_serv, &slen) ==
+						-1) {
+						error("recvfrom");
+					}
+				}
+			}
+			else{
+				if (nanosleep(&time_s, NULL) == -1)
+					error("nanosleep");
+				kill(pid,SIGKILL);
+			}
+
+			puts("finito di ricevere");
+			break;
+		}
+
 	}
-	printf("Numero bytes ricevuti : %zd\n",count);
+	printf("bytes scritti: %d\n",contascritti);
+	printf("scartati: %d\n",contascartati);
+
 	close(fd);
+	puts("esco! ciao");
 }
 void parse_data(char* buf)
 {
