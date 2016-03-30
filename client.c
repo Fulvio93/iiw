@@ -39,8 +39,11 @@ void get_data_from_server()
 	off_t filesize;
 	struct udp_pkt_s udp_pkt[(2*W)];
 	struct udp_pkt_s rcv_udp_pkt;
+	pid_t pid;
 	bool ricevuto[2*W];
-
+	struct timespec time_s;
+	time_s.tv_sec = SECTIMEOUT;
+	time_s.tv_nsec = NSECTIMEOUT;
 
 	fprintf(stdout,"Write the name of the file you want download: ");
 	if(scanf("%s", filename_to_get)==-1)
@@ -139,16 +142,27 @@ void get_data_from_server()
 			}
 		}
 
-		if (rcv_udp_pkt.seq==-1) {
-			if(contascritti==filesize ){
-				unlock_server();
-				puts("finito di ricevere");
-				break;
+		if(contascritti==filesize ){
+			unlock_server();
+			if((pid=fork()) == 0)
+			{
+				while(1) {
+					if (recvfrom(sfd, &rcv_udp_pkt, sizeof(rcv_udp_pkt), 0, (struct sockaddr *) &sock_serv, &slen) ==
+						-1) {
+						error("recvfrom");
+					}
+				}
 			}
 			else{
-				puts("Ignoro! non ho finito di ricevere!");
+				if (nanosleep(&time_s, NULL) == -1)
+					error("nanosleep");
+				kill(pid,SIGKILL);
 			}
+
+			puts("finito di ricevere");
+			break;
 		}
+
 	}
 	printf("bytes scritti: %d\n",contascritti);
 	printf("scartati: %d\n",contascartati);
@@ -281,6 +295,7 @@ int main(void) {
 			if (strncmp(message, "put", 3) == 0) {
 				put_file_to_server();
 			}
+			close(sfd);
 			exit(0);
 		}
 		wait(NULL);

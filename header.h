@@ -9,13 +9,18 @@
 #include<time.h>
 #include<sys/wait.h>
 #include<sys/stat.h>
+#include<signal.h>
 
 #define SERVER "127.0.0.1"
 
-#define BUFFLEN 2048 //Max length of buffer
+#define BUFFLEN 20480 //Max length of buffer
 #define PORT 8888   //The port on which to listen for incoming data
 #define W 8
+#define SECTIMEOUT 0
+#define NSECTIMEOUT 100000000
 int max_num_seq = (2*W)-1;
+
+
 
 struct udp_pkt_s{
     int seq;

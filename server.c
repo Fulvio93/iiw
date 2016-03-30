@@ -1,5 +1,4 @@
-#include <time.h>
-#include <signal.h>
+
 #include "header.h"
 
 
@@ -43,7 +42,6 @@ void send_data_to_client() {
 
 	int fd;
 	char file_request[BUFFLEN] = "";
-	char buftemp[BUFFLEN];
 	off_t sz;
 	int l = sizeof(struct sockaddr_in);
 	struct stat buffer;
@@ -51,7 +49,7 @@ void send_data_to_client() {
 	ssize_t recv_len = 1;
 	ssize_t bytesread = 1;
 	int num_seq;
-	int slots_occupati_finestra;
+	int slots_occupati_finestra=0;
 	int send_base;
 	int j;
 	int ritrasmissioni = 0;
@@ -62,8 +60,8 @@ void send_data_to_client() {
 	struct udp_pkt_s udp_pkt[(2 * W)];
 	struct udp_pkt_s rcv_udp_pkt;
 	struct timespec time_s;
-	time_s.tv_sec = 0;
-	time_s.tv_nsec = 10000000;
+	time_s.tv_sec = SECTIMEOUT;
+	time_s.tv_nsec = NSECTIMEOUT;
 	pid_t sid;
 	if(( sid = setsid())==-1)
 	{
@@ -151,7 +149,7 @@ void send_data_to_client() {
 						while (1) {
 
 							if (nanosleep(&time_s, NULL) == -1)
-								_exit(0);
+								exit(0);
 							printf("TIMER SCADUTO! #seq: %d ... RINVIO!\n", udp_pkt[num_seq].seq);
 							fflush(stdout);
 							p = rand() % 100 + 1;
@@ -173,13 +171,8 @@ void send_data_to_client() {
 						}
 					}
 				} else {
-					memset(&udp_pkt[num_seq], 0, sizeof(udp_pkt[num_seq]));
-					udp_pkt[num_seq].seq = -1;
-					if (sendto(sfd, &udp_pkt[num_seq], sizeof(udp_pkt[num_seq]), 0, (struct sockaddr *) &sock_serv,
-							   l) == -1) {
-						error("sendto");
-					}
-					slots_occupati_finestra = W - 1;
+
+					slots_occupati_finestra = 2*W; //dato che ho finito di leggere incremento gli slot a tal punto da non trasmettere piu
 
 				}
 				if (num_seq < max_num_seq) {
@@ -195,6 +188,7 @@ void send_data_to_client() {
 				printf("SLOT OCCUPATI: %d\n", slots_occupati_finestra);
 				fflush(stdout);
 			}
+
 			while (1) {
 				puts("FINESTRA PIENA!! ATTESA DI ACK");
 
@@ -267,7 +261,6 @@ void send_data_to_client() {
 
 						break;//se cambia la send_base posso interrompere il ciclo di ascolto e ricominciare a inviare
 					}
-
 				}
 			}
 		}
@@ -441,7 +434,7 @@ int main(void)
 			unlock_client(); //invio al client un pacchetto vuoto ma che contiene le informazioni sulla nuova porta
 
 			parse_data(buf);
-
+			close(sfd);
 			exit(0);
 		}
 		usleep(1000); //faccio partire prima il figlio
