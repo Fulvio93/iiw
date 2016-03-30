@@ -1,18 +1,8 @@
-#include<stdio.h>
-#include<string.h>
-#include<stdlib.h>
-#include<dirent.h>
-#include<unistd.h>
-#include<arpa/inet.h>
-#include<fcntl.h>
-#include<sys/stat.h>
-#include<stdbool.h>
-#include<time.h>
-#include<signal.h>
+#include <time.h>
+#include <signal.h>
+#include "header.h"
 
-#define BUFFLEN 512 //Max length of buffer
-#define PORT 8888   //The port on which to listen for incoming data
-#define W 8
+
 char path[256];
 struct sockaddr_in sock_serv, clnt;
 int sfd;
@@ -20,18 +10,7 @@ socklen_t slen = sizeof(clnt);
 DIR *dp;
 struct dirent *ep;
 
-struct udp_pkt_s{
-	int seq;
-	bool ack;
-	char buf[BUFFLEN];
-	int bytesletti;
-};
 
-void error(char *str)
-{
-	perror(str);
-	exit(1);
-}
 void sendbuf(char* buf)
 {
 	if (sendto(sfd, buf, BUFFLEN, 0, (struct sockaddr*) &clnt, slen) == -1)
@@ -59,58 +38,62 @@ void list_elements_to_client()
 
 	(void) closedir (dp);
 }
-void send_data_to_client()
-{
-	char file_request[BUFFLEN] = "";
+void send_data_to_client() {
+	printf("inizio operazione get -- porta server:%d verso porta client: %d\n", sock_serv.sin_port, clnt.sin_port);
 
-	ssize_t recv_len=1;
-	struct stat buffer;
+	int fd;
+	char file_request[BUFFLEN] = "";
 	char buftemp[BUFFLEN];
 	off_t sz;
-	ssize_t bytesread=1;
 	int l = sizeof(struct sockaddr_in);
+	struct stat buffer;
+	char getbuf[BUFFLEN];
+	ssize_t recv_len = 1;
+	ssize_t bytesread = 1;
 	int num_seq;
 	int slots_occupati_finestra;
 	int send_base;
 	int j;
-	int ritrasmissioni=0;
-	int fd;
-	char filename[128];
+	int ritrasmissioni = 0;
 	int position_in_sequence_array;
-	int max_num_seq = (2*W)-1;
-	pid_t pid[2*W];
+	int max_num_seq = (2 * W) - 1;
+	pid_t pid[2 * W];
 	int p;
-	struct udp_pkt_s udp_pkt[(2*W)];
+	struct udp_pkt_s udp_pkt[(2 * W)];
 	struct udp_pkt_s rcv_udp_pkt;
 	struct timespec time_s;
-	time_s.tv_sec=0;
-	time_s.tv_nsec=10000000;
+	time_s.tv_sec = 0;
+	time_s.tv_nsec = 10000000;
+	pid_t sid;
+	if(( sid = setsid())==-1)
+	{
+		error("setsid");
+	}
+	puts("GET request");
+	puts("Waiting for file name... ");
 
-	printf("DIMENSIONE FINESTRA: %d\n",W);
-	printf("numeri di sequenza: da 0 a %d\n",max_num_seq);
-	printf("sono il processo: %d\n",getpid());
+	memset(getbuf, 0, BUFFLEN);
+	bytesread = recvfrom(sfd, getbuf, BUFFLEN, 0, (struct sockaddr *) &sock_serv, &slen);
 
-	puts("Waiting for filename");
-	memset(&rcv_udp_pkt,0,sizeof(struct udp_pkt_s));
-	recv_len = recvfrom(sfd, filename, sizeof(filename), 0, (struct sockaddr *) &sock_serv, &slen);
-	if (recv_len == -1) {
+	if (bytesread == -1) {
 		error("recvfrom()");
 	}
-	puts("pacchetto ricevuto");
+
 	strcat(file_request, path);
-	strcat(file_request, filename);
-	printf("ricevuto: %s\n", file_request);
-	fflush(stdout);
+	strcat(file_request, getbuf);
+
+	printf("file richiesto: %s\n", file_request);
+
 	fd = open(file_request, O_RDONLY);
 	if (fd != -1) {
-		puts("file aperto");
+
 		//dimensione del file
-		if (stat(filename, &buffer) == -1)
+		if (stat(file_request, &buffer) == -1)
 			error("stat fail");
 		else
 			sz = buffer.st_size;
 
-		printf("Dimensione file: %zd\n",sz);
+		printf("Dimensione file: %zd\n", sz);
 		fflush(stdout);
 
 		if (sendto(sfd, &sz, sizeof(sz), 0, (struct sockaddr *) &sock_serv, l) == -1) {
@@ -118,31 +101,31 @@ void send_data_to_client()
 		}
 
 
-		num_seq=0;
-		slots_occupati_finestra=0;
-		send_base=0;
+		num_seq = 0;
+		slots_occupati_finestra = 0;
+		send_base = 0;
 		srand(time(NULL));
 
 		while (recv_len) { //finchè non raggiungo la fine del file
 			while (slots_occupati_finestra < W) {
-				memset(buftemp, 0, BUFFLEN);
-				bytesread = read(fd, buftemp, BUFFLEN); //leggo buffer del file
-				printf("bytesread: %zd\n",bytesread);
+				memset(&udp_pkt[num_seq], 0, sizeof(udp_pkt[num_seq]));
+				bytesread = read(fd, udp_pkt[num_seq].buf, BUFFLEN); //leggo buffer del file
+				printf("bytesread: %zd\n", bytesread);
 				fflush(stdout);
 				if (bytesread > 0) {
 
 					//creazione pacchetto da inviare
-					memset(&udp_pkt[num_seq], 0, sizeof(udp_pkt[num_seq]));
+
 					udp_pkt[num_seq].ack = 0;
 					udp_pkt[num_seq].bytesletti = bytesread;
-					strncpy(udp_pkt[num_seq].buf, buftemp,BUFFLEN);
-					printf("#seq: %d\n",num_seq);
+					printf("#seq: %d\n", num_seq);
 					fflush(stdout);
 					udp_pkt[num_seq].seq = num_seq;
 
+
 					//fine creazione pacchetto da inviare
-					p=rand()%100+1;
-					if(p>10) {
+					p = rand() % 100 + 1;
+					if (p > 10) {
 						if (sendto(sfd, &udp_pkt[num_seq], sizeof(udp_pkt[num_seq]), 0, (struct sockaddr *) &sock_serv,
 								   l) == -1) {
 							error("sendto");
@@ -150,14 +133,13 @@ void send_data_to_client()
 						printf("pacchetto #seq: %d inviato! timer partito!\n", udp_pkt[num_seq].seq);
 						fflush(stdout);
 
-					} else
-					{
+					} else {
 						printf("pacchetto #seq: %d SCARTATO!\n", udp_pkt[num_seq].seq);
 						fflush(stdout);
 					}
 
 
-					memset(&pid[num_seq],0,sizeof(int));
+					memset(&pid[num_seq], 0, sizeof(int));
 					pid[num_seq] = fork();
 
 					if (pid[num_seq] == -1) {
@@ -165,36 +147,39 @@ void send_data_to_client()
 					}
 					if (pid[num_seq] == 0) //sono il figlio
 					{
+						setpgid(0,getppid());
 						while (1) {
 
-							if(nanosleep(&time_s, NULL)==-1)
+							if (nanosleep(&time_s, NULL) == -1)
 								_exit(0);
 							printf("TIMER SCADUTO! #seq: %d ... RINVIO!\n", udp_pkt[num_seq].seq);
 							fflush(stdout);
-							p=rand()%100+1;
-							if(p>10) {
+							p = rand() % 100 + 1;
+							if (p > 10) {
 								if (sendto(sfd, &udp_pkt[num_seq], sizeof(udp_pkt[num_seq]), 0,
 										   (struct sockaddr *) &sock_serv, l) == -1) {
 									error("sendto");
 								}
 								printf("pacchetto #seq: %d inviato! timer partito!\n", udp_pkt[num_seq].seq);
 								fflush(stdout);
-							}else
-							{
+							} else {
 								printf("pacchetto #seq: %d SCARTATO!\n", udp_pkt[num_seq].seq);
 								fflush(stdout);
 
 							}
 							ritrasmissioni++;
-							printf("ritrasmissione numero:%d\n",ritrasmissioni);
+							printf("ritrasmissione numero:%d\n", ritrasmissioni);
 							fflush(stdout);
 						}
 					}
 				} else {
-					udp_pkt[num_seq].seq=-1;
-					if (sendto(sfd, &udp_pkt[num_seq], sizeof(udp_pkt[num_seq]), 0, (struct sockaddr *) &sock_serv, l) == -1) {
+					memset(&udp_pkt[num_seq], 0, sizeof(udp_pkt[num_seq]));
+					udp_pkt[num_seq].seq = -1;
+					if (sendto(sfd, &udp_pkt[num_seq], sizeof(udp_pkt[num_seq]), 0, (struct sockaddr *) &sock_serv,
+							   l) == -1) {
 						error("sendto");
 					}
+					slots_occupati_finestra = W - 1;
 
 				}
 				if (num_seq < max_num_seq) {
@@ -207,24 +192,27 @@ void send_data_to_client()
 				};
 
 				slots_occupati_finestra++;
-				printf("SLOT OCCUPATI: %d\n",slots_occupati_finestra);
+				printf("SLOT OCCUPATI: %d\n", slots_occupati_finestra);
 				fflush(stdout);
 			}
 			while (1) {
 				puts("FINESTRA PIENA!! ATTESA DI ACK");
 
 				memset(&rcv_udp_pkt, 0, sizeof(rcv_udp_pkt));
-				recv_len = recvfrom(sfd, &rcv_udp_pkt, sizeof(struct udp_pkt_s), 0, (struct sockaddr *) &sock_serv, &slen);
+				recv_len = recvfrom(sfd, &rcv_udp_pkt, sizeof(struct udp_pkt_s), 0, (struct sockaddr *) &sock_serv,
+									&slen);
 				if (recv_len == -1) {
 					error("recvfrom()");
 				}
 				if (recv_len == 0) {
 					puts("il client mi ha mandato un pacchetto vuoto");
-					kill(0, SIGKILL); //se ho finito di ricevere, uccido tutti
+					close(fd);
+					kill(-getpid(), SIGKILL); //se ho finito di ricevere, uccido tutti
+
 				}
 				printf("ack ricevuto!! sono il processo padre: %d\n", getpid());
 				printf("ho ricevuto il pacchetto con #seq:%d, e con ack=%d\n", rcv_udp_pkt.seq, rcv_udp_pkt.ack);
-				if (rcv_udp_pkt.ack == 1) {   //se nel pacchetto ricevuto l'ack è uguale a 1 allora vuol dire che il destinatario l'ha ricevuto correttamente
+				if (rcv_udp_pkt.ack ==	1) {   //se nel pacchetto ricevuto l'ack è uguale a 1 allora vuol dire che il destinatario l'ha ricevuto correttamente
 					kill(pid[rcv_udp_pkt.seq], SIGKILL); //uccido il processo timer legato al numero di sequenza dell'ACK ricevuto
 
 					udp_pkt[rcv_udp_pkt.seq].ack = 1;
@@ -236,7 +224,8 @@ void send_data_to_client()
 						printf("bisogna aggiornare la send_base!  send base corrente:%d\n", send_base);
 						fflush(stdout);
 
-						for (j = 0; j < W; j++) {    //ciclo che calcola la nuova send_base, controllando i pacchetti con ack = 1
+						for (j = 0; j <
+									W; j++) {    //ciclo che calcola la nuova send_base, controllando i pacchetti con ack = 1
 							position_in_sequence_array = send_base + j + 1;
 							if (position_in_sequence_array > max_num_seq) // se vero, ho sforato il num max di sequenza
 							{
@@ -245,27 +234,31 @@ void send_data_to_client()
 								printf("nuova posizione %d\n", position_in_sequence_array);
 
 							}
-							if(j == (W-1))
-							{
-								printf("il primo pacchetto senza ack dopo la send_base è il numero:%d\n", position_in_sequence_array);
+							if (j == (W - 1)) {
+								printf("il primo pacchetto senza ack dopo la send_base è il numero:%d\n",
+									   position_in_sequence_array);
 								fflush(stdout);
 								send_base = position_in_sequence_array;// aggiornerà la posizione della send_base
 								printf("base aggiornata, la nuova base è %d\n", send_base);
 								fflush(stdout);
-								slots_occupati_finestra = slots_occupati_finestra - (j+1);  // e libererà tanti slot dell finestra quante sono le iterazioni che ha fatto
-								printf("sbloccati %d slot della finestra\n", (j+1));
+								slots_occupati_finestra = slots_occupati_finestra - (j +
+																					 1);  // e libererà tanti slot dell finestra quante sono le iterazioni che ha fatto
+								printf("sbloccati %d slot della finestra\n", (j + 1));
 								fflush(stdout);
 
 								break;
 							}
-							if (udp_pkt[position_in_sequence_array].ack == 0) { // appena trova il primo pacchetto con ack=0, aggiornerà la posizione della send_base
-								printf("il primo pacchetto senza ack dopo la send_base è il numero:%d\n", position_in_sequence_array);
+							if (udp_pkt[position_in_sequence_array].ack ==
+								0) { // appena trova il primo pacchetto con ack=0, aggiornerà la posizione della send_base
+								printf("il primo pacchetto senza ack dopo la send_base è il numero:%d\n",
+									   position_in_sequence_array);
 								fflush(stdout);
 								send_base = position_in_sequence_array;// aggiornerà la posizione della send_base
 								printf("base aggiornata, la nuova base è %d\n", send_base);
 								fflush(stdout);
-								slots_occupati_finestra = slots_occupati_finestra - (j+1);  // e libererà tanti slot dell finestra quante sono le iterazioni che ha fatto
-								printf("sbloccati %d slot della finestra\n", (j+1));
+								slots_occupati_finestra = slots_occupati_finestra - (j +
+																					 1);  // e libererà tanti slot dell finestra quante sono le iterazioni che ha fatto
+								printf("sbloccati %d slot della finestra\n", (j + 1));
 								fflush(stdout);
 
 								break;                                          //fermo il ciclo perchè ho trovato la nuova send_base
@@ -277,14 +270,7 @@ void send_data_to_client()
 
 				}
 			}
-
 		}
-
-		close(fd);
-	}
-	else{
-		error("open file fail");
-		unlock_client();
 	}
 }
 void receive_data_from_client()

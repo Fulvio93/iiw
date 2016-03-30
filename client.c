@@ -1,36 +1,10 @@
-#include<stdio.h> //printf
-#include<string.h> //memset
-#include<stdlib.h> //exit(0);
-#include<arpa/inet.h>
-#include<unistd.h>
-#include<time.h>
-#include<stdbool.h>
-#include<fcntl.h>
-#include<sys/stat.h>
-#include<sys/wait.h>
 
-
-#define SERVER "127.0.0.1"
-#define BUFFLEN 512 //Max length of buffer
-#define PORT 8888   //The port on which to send data
-#define W 8
+#include "header.h"
 
 struct sockaddr_in sock_serv;
 int sfd;
-int max_num_seq = (2*W)-1;
 socklen_t slen=sizeof(sock_serv);
-struct udp_pkt_s{
-	int seq;
-	bool ack;
-	char buf[BUFFLEN];
-	int bytesletti;
-};
 
-void error(char *s)
-{
-	perror(s);
-	exit(1);
-}
 void unlock_server()
 {
 	if (sendto(sfd, " ", 0, 0, (struct sockaddr*) &sock_serv, slen) == -1)
@@ -38,7 +12,6 @@ void unlock_server()
 		error("sendto()");
 	}
 }
-
 bool check_if_in_window(int seq, int base)
 {
 	if((base + W - 1) > max_num_seq) {
@@ -56,11 +29,12 @@ bool check_if_in_window(int seq, int base)
 void get_data_from_server()
 {
 	printf("inizio operazione get -- porta server:%d\n",sock_serv.sin_port);
+	int fd;
+	char filename_to_get[BUFFLEN];
 	ssize_t bytesread,byteswritten;
 	int contascartati=0,contabuf=0,contascritti=0;
-	int fd, send_base=0;
+	int send_base=0;
 	int position_in_sequence_array;
-	char filename[128];
 	int p,j;
 	off_t filesize;
 	struct udp_pkt_s udp_pkt[(2*W)];
@@ -68,25 +42,20 @@ void get_data_from_server()
 	bool ricevuto[2*W];
 
 
-	puts("Insert the name of the file you want transfer: ");
-	if (scanf("%s", filename) == -1)
+	fprintf(stdout,"Write the name of the file you want download: ");
+	if(scanf("%s", filename_to_get)==-1)
 		error("scanf");
-
-	puts(rcv_udp_pkt.buf);
-
-	memset(ricevuto,0,sizeof(ricevuto));
-
-	if (sendto(sfd, filename, sizeof(filename), 0, (struct sockaddr *) &sock_serv, slen) == -1) {
+	if (sendto(sfd, filename_to_get, strlen(filename_to_get) , 0 , (struct sockaddr *) &sock_serv, slen)==-1)
+	{
 		error("sendto()");
 	}
-
 	if(recvfrom(sfd, &filesize, sizeof(filesize), 0, (struct sockaddr *) &sock_serv, &slen) == -1)
 	{
 		error("recvfrom");
 	}
 	printf("Dimensione file: %zd\n",filesize);
 	fflush(stdout);
-	fd = open(filename,O_CREAT|O_WRONLY|O_TRUNC,0600);
+	fd = open(filename_to_get,O_CREAT|O_WRONLY|O_TRUNC,0600);
 
 	if((fd==-1)){
 		error("open fail");
@@ -175,6 +144,9 @@ void get_data_from_server()
 				unlock_server();
 				puts("finito di ricevere");
 				break;
+			}
+			else{
+				puts("Ignoro! non ho finito di ricevere!");
 			}
 		}
 	}
