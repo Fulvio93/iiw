@@ -114,12 +114,12 @@ void send_data_to_client() {
 					//fine creazione pacchetto da inviare
 
 					p = rand() % 100 + 1;
-					if (p > 10) {
+					if (p > PROB) {
 						if (sendto(sfd, &udp_pkt[num_seq], sizeof(udp_pkt[num_seq]), 0, (struct sockaddr *) &sock_serv,
 								   l) == -1) {
 							error("sendto");
 						}
-						if(timerfree) {
+						if(timerfree && ADAPTIVE_TIMEOUT) {
 							gettimeofday(&start, NULL);
 							check_num_seq = num_seq;
 							timerfree = 0;
@@ -185,7 +185,7 @@ void send_data_to_client() {
 				if (rcv_udp_pkt.ack ==	1) {   //se nel pacchetto ricevuto l'ack è uguale a 1 allora vuol dire che il destinatario l'ha ricevuto correttamente
 					kill(pid[rcv_udp_pkt.seq], SIGKILL); //uccido il processo timer legato al numero di sequenza dell'ACK ricevuto
 
-					if(rcv_udp_pkt.seq == check_num_seq)
+					if((rcv_udp_pkt.seq == check_num_seq) && ADAPTIVE_TIMEOUT)
 					{
 						gettimeofday(&end,NULL);
 						sampleRTT = 1000000 * (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec);
