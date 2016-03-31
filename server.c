@@ -1,4 +1,3 @@
-
 #include "header.h"
 
 
@@ -9,14 +8,6 @@ socklen_t slen = sizeof(clnt);
 DIR *dp;
 struct dirent *ep;
 
-
-void sendbuf(char* buf)
-{
-	if (sendto(sfd, buf, BUFFLEN, 0, (struct sockaddr*) &clnt, slen) == -1)
-	{
-		error("sendto()");
-	}
-}
 void unlock_client()
 {
 	if (sendto(sfd, "", 0, 0, (struct sockaddr*) &clnt, slen) == -1)
@@ -32,7 +23,10 @@ void list_elements_to_client()
 
 	while ((ep = readdir(dp)))
 	{
-		sendbuf(ep->d_name);
+		if (sendto(sfd, ep->d_name, BUFFLEN, 0, (struct sockaddr*) &clnt, slen) == -1)
+		{
+			error("sendto()");
+		}
 	}
 
 	(void) closedir (dp);
@@ -49,10 +43,10 @@ void send_data_to_client() {
 	ssize_t recv_len = 1;
 	ssize_t bytesread = 1;
 	int num_seq;
+	int pacchetti_scartati = 0;
 	int slots_occupati_finestra=0;
 	int send_base;
 	int j;
-	int ritrasmissioni = 0;
 	int position_in_sequence_array;
 	int max_num_seq = (2 * W) - 1;
 	pid_t pid[2 * W];
@@ -63,6 +57,11 @@ void send_data_to_client() {
 	time_s.tv_sec = SECTIMEOUT;
 	time_s.tv_nsec = NSECTIMEOUT;
 	pid_t sid;
+	int check_num_seq = 0;
+	bool timerfree=1;
+	unsigned long long sampleRTT, estimatedRTT = 1000000 * time_s.tv_sec + time_s.tv_nsec / 1000;
+
+
 	if(( sid = setsid())==-1)
 	{
 		error("setsid");
@@ -80,8 +79,6 @@ void send_data_to_client() {
 	strcat(file_request, path);
 	strcat(file_request, getbuf);
 
-	printf("file richiesto: %s\n", file_request);
-
 	fd = open(file_request, O_RDONLY);
 	if (fd != -1) {
 
@@ -98,7 +95,6 @@ void send_data_to_client() {
 			error("sendto");
 		}
 
-
 		num_seq = 0;
 		slots_occupati_finestra = 0;
 		send_base = 0;
@@ -108,32 +104,29 @@ void send_data_to_client() {
 			while (slots_occupati_finestra < W) {
 				memset(&udp_pkt[num_seq], 0, sizeof(udp_pkt[num_seq]));
 				bytesread = read(fd, udp_pkt[num_seq].buf, BUFFLEN); //leggo buffer del file
-				printf("bytesread: %zd\n", bytesread);
-				fflush(stdout);
+
 				if (bytesread > 0) {
 
 					//creazione pacchetto da inviare
-
 					udp_pkt[num_seq].ack = 0;
 					udp_pkt[num_seq].bytesletti = bytesread;
-					printf("#seq: %d\n", num_seq);
-					fflush(stdout);
 					udp_pkt[num_seq].seq = num_seq;
-
-
 					//fine creazione pacchetto da inviare
+
 					p = rand() % 100 + 1;
 					if (p > 10) {
 						if (sendto(sfd, &udp_pkt[num_seq], sizeof(udp_pkt[num_seq]), 0, (struct sockaddr *) &sock_serv,
 								   l) == -1) {
 							error("sendto");
 						}
-						printf("pacchetto #seq: %d inviato! timer partito!\n", udp_pkt[num_seq].seq);
-						fflush(stdout);
+						if(timerfree) {
+							gettimeofday(&start, NULL);
+							check_num_seq = num_seq;
+							timerfree = 0;
+						}
 
 					} else {
-						printf("pacchetto #seq: %d SCARTATO!\n", udp_pkt[num_seq].seq);
-						fflush(stdout);
+						pacchetti_scartati++;
 					}
 
 
@@ -150,24 +143,13 @@ void send_data_to_client() {
 
 							if (nanosleep(&time_s, NULL) == -1)
 								exit(0);
-							printf("TIMER SCADUTO! #seq: %d ... RINVIO!\n", udp_pkt[num_seq].seq);
-							fflush(stdout);
 							p = rand() % 100 + 1;
 							if (p > 10) {
 								if (sendto(sfd, &udp_pkt[num_seq], sizeof(udp_pkt[num_seq]), 0,
 										   (struct sockaddr *) &sock_serv, l) == -1) {
 									error("sendto");
 								}
-								printf("pacchetto #seq: %d inviato! timer partito!\n", udp_pkt[num_seq].seq);
-								fflush(stdout);
-							} else {
-								printf("pacchetto #seq: %d SCARTATO!\n", udp_pkt[num_seq].seq);
-								fflush(stdout);
-
 							}
-							ritrasmissioni++;
-							printf("ritrasmissione numero:%d\n", ritrasmissioni);
-							fflush(stdout);
 						}
 					}
 				} else {
@@ -185,12 +167,9 @@ void send_data_to_client() {
 				};
 
 				slots_occupati_finestra++;
-				printf("SLOT OCCUPATI: %d\n", slots_occupati_finestra);
-				fflush(stdout);
 			}
 
 			while (1) {
-				puts("FINESTRA PIENA!! ATTESA DI ACK");
 
 				memset(&rcv_udp_pkt, 0, sizeof(rcv_udp_pkt));
 				recv_len = recvfrom(sfd, &rcv_udp_pkt, sizeof(struct udp_pkt_s), 0, (struct sockaddr *) &sock_serv,
@@ -199,62 +178,47 @@ void send_data_to_client() {
 					error("recvfrom()");
 				}
 				if (recv_len == 0) {
-					puts("il client mi ha mandato un pacchetto vuoto");
 					close(fd);
 					kill(-getpid(), SIGKILL); //se ho finito di ricevere, uccido tutti
 
 				}
-				printf("ack ricevuto!! sono il processo padre: %d\n", getpid());
-				printf("ho ricevuto il pacchetto con #seq:%d, e con ack=%d\n", rcv_udp_pkt.seq, rcv_udp_pkt.ack);
 				if (rcv_udp_pkt.ack ==	1) {   //se nel pacchetto ricevuto l'ack è uguale a 1 allora vuol dire che il destinatario l'ha ricevuto correttamente
 					kill(pid[rcv_udp_pkt.seq], SIGKILL); //uccido il processo timer legato al numero di sequenza dell'ACK ricevuto
 
+					if(rcv_udp_pkt.seq == check_num_seq)
+					{
+						gettimeofday(&end,NULL);
+						sampleRTT = 1000000 * (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec);
+						estimatedRTT = 0.875 * estimatedRTT + 0.125 * sampleRTT;
+						time_s.tv_sec = estimatedRTT / 1000000;
+						time_s.tv_nsec = (estimatedRTT * 1000) - (time_s.tv_sec * 1000000000);
+						printf("Sample: %llu\n",sampleRTT);
+						printf("Estimated: %llu\n",estimatedRTT);
+						printf("new timer sec: %ld\n",time_s.tv_sec);
+						printf("new timer nanosec: %ld\n",time_s.tv_nsec);
+
+						timerfree = 1;
+					}
+
 					udp_pkt[rcv_udp_pkt.seq].ack = 1;
 
-					printf("ucciso il processo: %d\n", pid[rcv_udp_pkt.seq]);
-
 					if (rcv_udp_pkt.seq == send_base) {  // se l'ack ricevuto ha numero di sequenza uguale alla send_base, allora libero uno slot della finestra e aggiorno la send_base
-
-						printf("bisogna aggiornare la send_base!  send base corrente:%d\n", send_base);
-						fflush(stdout);
 
 						for (j = 0; j <
 									W; j++) {    //ciclo che calcola la nuova send_base, controllando i pacchetti con ack = 1
 							position_in_sequence_array = send_base + j + 1;
 							if (position_in_sequence_array > max_num_seq) // se vero, ho sforato il num max di sequenza
 							{
-								printf("posizione di sforamento=%d\n", position_in_sequence_array);
 								position_in_sequence_array = (position_in_sequence_array - max_num_seq) - 1;
-								printf("nuova posizione %d\n", position_in_sequence_array);
-
 							}
 							if (j == (W - 1)) {
-								printf("il primo pacchetto senza ack dopo la send_base è il numero:%d\n",
-									   position_in_sequence_array);
-								fflush(stdout);
 								send_base = position_in_sequence_array;// aggiornerà la posizione della send_base
-								printf("base aggiornata, la nuova base è %d\n", send_base);
-								fflush(stdout);
-								slots_occupati_finestra = slots_occupati_finestra - (j +
-																					 1);  // e libererà tanti slot dell finestra quante sono le iterazioni che ha fatto
-								printf("sbloccati %d slot della finestra\n", (j + 1));
-								fflush(stdout);
-
+								slots_occupati_finestra = slots_occupati_finestra - (j + 1);  // e libererà tanti slot dell finestra quante sono le iterazioni che ha fatto
 								break;
 							}
-							if (udp_pkt[position_in_sequence_array].ack ==
-								0) { // appena trova il primo pacchetto con ack=0, aggiornerà la posizione della send_base
-								printf("il primo pacchetto senza ack dopo la send_base è il numero:%d\n",
-									   position_in_sequence_array);
-								fflush(stdout);
+							if (udp_pkt[position_in_sequence_array].ack == 0) { // appena trova il primo pacchetto con ack=0, aggiornerà la posizione della send_base
 								send_base = position_in_sequence_array;// aggiornerà la posizione della send_base
-								printf("base aggiornata, la nuova base è %d\n", send_base);
-								fflush(stdout);
-								slots_occupati_finestra = slots_occupati_finestra - (j +
-																					 1);  // e libererà tanti slot dell finestra quante sono le iterazioni che ha fatto
-								printf("sbloccati %d slot della finestra\n", (j + 1));
-								fflush(stdout);
-
+								slots_occupati_finestra = slots_occupati_finestra - (j + 1);  // e libererà tanti slot dell finestra quante sono le iterazioni che ha fatto
 								break;                                          //fermo il ciclo perchè ho trovato la nuova send_base
 							}
 						}
@@ -264,6 +228,9 @@ void send_data_to_client() {
 				}
 			}
 		}
+	}
+	else{
+		error("open");
 	}
 }
 void receive_data_from_client()
@@ -313,7 +280,6 @@ void receive_data_from_client()
 			error("recvfrom");
 		}
 
-		printf("ricevuto buf %d... #seq = %d\n", contabuf, rcv_udp_pkt.seq);
 		contabuf++;
 
 		p = rand() % 100 + 1;
@@ -325,10 +291,8 @@ void receive_data_from_client()
 				if (sendto(sfd, &rcv_udp_pkt, sizeof(rcv_udp_pkt), 0, (struct sockaddr *) &sock_serv, slen) == -1) {
 					error("sendto()");
 				}
-				printf("mandato ack per #seq; %d\n", rcv_udp_pkt.seq);
 			}
 			else {
-				puts("Ack scartato!");
 				contascartati++;
 			}
 		}
@@ -349,27 +313,17 @@ void receive_data_from_client()
 				if (byteswritten == -1)
 					error("write file fail");
 				contascritti += byteswritten;
-				printf("Scritto buf #seq: %d\n", rcv_udp_pkt.seq);
 				ricevuto[rcv_udp_pkt.seq] = 0;
 
-				printf("bisogna aggiornare la send_base! send base corrente:%d\n", send_base);
-				fflush(stdout);
 
 				for (j = 0; j < W; j++) {    //ciclo che calcola la nuova send_base, controllando i pacchetti con ack = 1
 					position_in_sequence_array = send_base + 1 + j;
 					if (position_in_sequence_array > max_num_seq) // se vero, ho sforato il num max di sequenza
 					{
-						printf("posizione di sforamento=%d\n", position_in_sequence_array);
 						position_in_sequence_array = (position_in_sequence_array - max_num_seq) - 1;
-						printf("nuova posizione %d\n", position_in_sequence_array);
 					}
-					if (ricevuto[position_in_sequence_array] ==
-						0) { // appena trova il primo pacchetto con ack=0, aggiornerà la posizione della send_base
-						printf("il primo pacchetto non ricevuto dopo la send_base è il numero:%d\n",
-							   position_in_sequence_array);
+					if (ricevuto[position_in_sequence_array] == 0) { // appena trova il primo pacchetto con ack=0, aggiornerà la posizione della send_base
 						send_base = position_in_sequence_array;// aggiornerà la posizione della send_base
-						printf("send_base aggiornata = %d\n", send_base);
-						fflush(stdout);
 						break;                                          //fermo il ciclo perchè ho trovato la nuova send_base
 					}
 					else {
@@ -377,7 +331,6 @@ void receive_data_from_client()
 						if (byteswritten == -1)
 							error("write file fail");
 						contascritti += byteswritten;
-						printf("Scritto buf #seq: %d\n", position_in_sequence_array);
 						ricevuto[position_in_sequence_array] = 0;
 					}
 				}
@@ -516,7 +469,6 @@ int main(void)
 		}
 
 		if(pid == 0) {
-			printf("I'm the child\n");
 
 			printf("Received packet from: %s, port: %d\n", inet_ntoa(clnt.sin_addr), ntohs(clnt.sin_port));
 
