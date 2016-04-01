@@ -14,13 +14,13 @@
 
 #define SERVER "127.0.0.1"
 
-#define BUFFLEN 20480 //Max length of buffer
+#define BUFFLEN 30000 //Max length of buffer
 #define PORT 8888   //The port on which to listen for incoming data
-#define W 8
+#define W 80
 #define SECTIMEOUT 0
 #define NSECTIMEOUT 100000000
 #define PROB 10
-#define ADAPTIVE_TIMEOUT 0
+#define ADAPTIVE_TIMEOUT 1
 
 int max_num_seq = (2*W)-1;
 struct timeval start,end;

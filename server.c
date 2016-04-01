@@ -194,8 +194,6 @@ void send_data_to_client() {
 						time_s.tv_nsec = (estimatedRTT * 1000) - (time_s.tv_sec * 1000000000);
 						printf("Sample: %llu\n",sampleRTT);
 						printf("Estimated: %llu\n",estimatedRTT);
-						printf("new timer sec: %ld\n",time_s.tv_sec);
-						printf("new timer nanosec: %ld\n",time_s.tv_nsec);
 
 						timerfree = 1;
 					}
