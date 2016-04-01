@@ -64,7 +64,7 @@ void get_data_from_server()
 		p = rand() % 100 + 1;
 
 		if(rcv_udp_pkt.seq!=-1){
-			if (p > 10) {
+			if (p > PROB) {
 				rcv_udp_pkt.ack = 1;
 
 				if (sendto(sfd, &rcv_udp_pkt, sizeof(rcv_udp_pkt), 0, (struct sockaddr *) &sock_serv, slen) == -1) {
@@ -188,7 +188,7 @@ void put_file_to_server()
 	pid_t sid;
 	int check_num_seq = 0;
 	bool timerfree=1;
-	unsigned long long sampleRTT, estimatedRTT = 1000000 * time_s.tv_sec + time_s.tv_nsec / 1000;
+	unsigned long long sampleRTT, estimatedRTT = 1000000 * time_s.tv_sec + time_s.tv_nsec / 1000,devRTT = 0, newtimeout=0;;
 	if(( sid = setsid())==-1)
 	{
 		error("setsid");
@@ -271,7 +271,7 @@ void put_file_to_server()
 							if (nanosleep(&time_s, NULL) == -1)
 								exit(0);
 							p = rand() % 100 + 1;
-							if (p > 10) {
+							if (p > PROB) {
 								if (sendto(sfd, &udp_pkt[num_seq], sizeof(udp_pkt[num_seq]), 0,
 										   (struct sockaddr *) &sock_serv, l) == -1) {
 									error("sendto");
@@ -318,10 +318,15 @@ void put_file_to_server()
 						gettimeofday(&end,NULL);
 						sampleRTT = 1000000 * (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec);
 						estimatedRTT = 0.875 * estimatedRTT + 0.125 * sampleRTT;
-						time_s.tv_sec = estimatedRTT / 1000000;
-						time_s.tv_nsec = (estimatedRTT * 1000) - (time_s.tv_sec * 1000000000);
+						devRTT = (0.75 * devRTT) + (0.25 * llabs(sampleRTT - estimatedRTT));
+						newtimeout = estimatedRTT + (4 * devRTT);
+						time_s.tv_sec = newtimeout / 1000000;
+						time_s.tv_nsec = (newtimeout * 1000) - (time_s.tv_sec * 1000000000);
 						printf("Sample: %llu\n",sampleRTT);
 						printf("Estimated: %llu\n",estimatedRTT);
+						printf("Dev: %llu\n",devRTT);
+						printf("new timeout: %llu\n",newtimeout);
+						printf("new timeout: %llu\n",newtimeout);
 
 						timerfree = 1;
 					}

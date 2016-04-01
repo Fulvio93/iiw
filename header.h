@@ -14,12 +14,12 @@
 
 #define SERVER "127.0.0.1"
 
-#define BUFFLEN 30000 //Max length of buffer
+#define BUFFLEN 1500 //Max length of buffer
 #define PORT 8888   //The port on which to listen for incoming data
-#define W 80
+#define W 40
 #define SECTIMEOUT 0
 #define NSECTIMEOUT 100000000
-#define PROB 10
+#define PROB 0
 #define ADAPTIVE_TIMEOUT 1
 
 int max_num_seq = (2*W)-1;
